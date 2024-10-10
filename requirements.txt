@@ -1,0 +1,4 @@
+biopython==1.84
+numpy==2.0.2
+pika==1.1.0
+psycopg2==2.9.9
