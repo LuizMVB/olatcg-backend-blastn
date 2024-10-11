@@ -16,31 +16,29 @@ def connect_db():
         port=5432
     )
 
-
 def store_file(file_path, analysis_id, file_type):
-    """Armazena o arquivo compactado no volume de armazenamento."""
-    output_dir = os.environ.get('STORAGE_FILE')
+    """Store the compressed file in the shared volume."""
+    output_dir = os.environ.get('STORAGE_FILE')  # Ensure this points to /mnt/data/blastn_storage
     if not output_dir:
         raise ValueError("Environment variable STORAGE_FILE is not set or is empty.")
 
     output_dir = os.path.join(output_dir, f"analysis_{analysis_id}")
-    os.makedirs(output_dir, exist_ok=True)  # Certifica que o diretório existe
+    os.makedirs(output_dir, exist_ok=True)  # Ensure the directory exists
 
     compressed_file_path = os.path.join(output_dir, f"{file_type}.txt.gz")
 
+    # Check if the file exists and then compress it
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"File {file_path} does not exist.")
 
     with open(file_path, 'rb') as f_in, gzip.open(compressed_file_path, 'wb') as f_out:
         shutil.copyfileobj(f_in, f_out)
 
-    # Ensure the compressed file is created successfully
     if not os.path.exists(compressed_file_path):
         raise ValueError(f"Failed to store the file at {compressed_file_path}")
 
-    # Retorna o caminho do arquivo armazenado
+    # Return the path of the stored file in the shared volume
     return compressed_file_path
-
 
 def decompress_file(compressed_file_path):
     """Decompresses a .gz file and returns the path to the uncompressed file."""
@@ -72,7 +70,6 @@ def create_query_file(data, query_titles, analysis_id):
     os.remove(query_file_path)
 
     return storage_file_path
-
 
 def run_blast(query_file_path, analysis_id, db, evalue, gapopen, gapextend, penalty):
     """Runs BLAST and stores output in a temporary file."""

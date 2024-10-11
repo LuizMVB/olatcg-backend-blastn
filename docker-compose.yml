@@ -13,9 +13,14 @@ services:
     volumes:
       - ./app:/app
       - ./blast:/blast
-      - ~/data/blastn_storage:/mnt/data/blastn_storage
+      - blastn_storage:/mnt/data/blastn_storage
     networks:
       - olatcg-bridge
+
+volumes:
+  blastn_storage:
+    name: olatcg-backend_blastn_storage
+    external: true
 
 networks:
   olatcg-bridge:
