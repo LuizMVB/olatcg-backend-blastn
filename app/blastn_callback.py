@@ -372,6 +372,18 @@ def blastn_callback(ch, method, properties, body):
                     """, (blastn_input_id, storage_output_fmt_11_file_path))
         conn.commit()
 
+        # Execute the update statement
+        cursor.execute("""
+                UPDATE core_analysis
+                SET status = %s
+                WHERE id = %s
+            """, ("EXECUTION_SUCCEEDED", data['analysis_id']))
+
+        # Commit the transaction
+        conn.commit()
+
+        print(f"Successfully updated analysis_id {data['analysis_id']} to 'EXECUTION_SUCCEEDED'.")
+
         print('Finished processing BLASTN job.')
     except FileNotFoundError as fe:
         print(f"Missing file: {fe}")
@@ -379,6 +391,9 @@ def blastn_callback(ch, method, properties, body):
     except Exception as e:
         print(f"Error processing BLASTN job: {e}")
         conn.rollback()  # Rollback transaction if something fails
+    except:
+        print('Error processing BLASTN job. Error Undetected')
+        conn.rollback()
     finally:
         cursor.close()
         conn.close()
