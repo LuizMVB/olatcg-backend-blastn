@@ -11,7 +11,6 @@ ENV PYTHONUNBUFFERED=1
 COPY requirements.txt .
 COPY ./app /app
 COPY ./build /build
-COPY ./blast /blast
 
 WORKDIR /app
 

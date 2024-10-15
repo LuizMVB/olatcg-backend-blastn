@@ -142,7 +142,7 @@ apt-get install -y --no-install-recommends build-essential libpq-dev
 /py/bin/pip install -r /requirements.txt
 
 echo "Unzip /sequences/*"
-gunzip /blast/sequences/*.gz
+gunzip -f /blast/sequences/*.gz
 
 # Criar o mapa de taxid a partir de todos os arquivos .gbff
 echo "Creating taxid map"
@@ -152,9 +152,10 @@ done
 
 # Criar o banco de dados BLAST a partir de todos os arquivos .fna
 echo "Creating BLAST database"
-rm /blast/sequences/combined_sequences.fna
-cat /blast/sequences/*.fna > /blast/sequences/combined_sequences.fna
-makeblastdb -in /blast/sequences/combined_sequences.fna -dbtype nucl -parse_seqids -taxid_map /blast/taxonomy/taxid_map.txt -out /blast/db/environmental_bacteria_db
+rm -f /blast/combined_sequences.fna
+touch /blast/combined_sequences.fna
+cat /blast/sequences/*.fna > /blast/combined_sequences.fna
+makeblastdb -in /blast/combined_sequences.fna -dbtype nucl -parse_seqids -taxid_map /blast/taxonomy/taxid_map.txt -out /blast/db/environmental_bacteria_db
 
 echo "Cleaning up"
 apt-get remove -y build-essential libpq-dev wget
