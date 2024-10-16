@@ -150,11 +150,17 @@ find /blast/sequences -name "*.gbff" | while read gbff_file; do
     /py/bin/python3 /build/create_taxid_map.py -i "$gbff_file" -o /blast/taxonomy/taxid_map.txt --append
 done
 
-# Criar o banco de dados BLAST a partir de todos os arquivos .fna
 echo "Creating BLAST database"
 rm -f /blast/combined_sequences.fna
 touch /blast/combined_sequences.fna
-cat /blast/sequences/*.fna > /blast/combined_sequences.fna
+
+# Para cada arquivo .fna no diretório /blast/sequences
+for fna_file in /blast/sequences/*.fna; do
+  # Captura apenas a primeira sequência (linha de cabeçalho e a sequência)
+  awk '/^>/ {if (seq) exit; seq=1} {print}' "$fna_file" >> /blast/combined_sequences.fna
+done
+
+# Cria o banco de dados BLAST com o arquivo combinado
 makeblastdb -in /blast/combined_sequences.fna -dbtype nucl -parse_seqids -taxid_map /blast/taxonomy/taxid_map.txt -out /blast/db/environmental_bacteria_db
 
 echo "Cleaning up"
