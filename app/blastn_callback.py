@@ -231,6 +231,10 @@ def parse_blast_results(conn, analysis_id, blast_outfmt11_path, query_titles, ta
             try:
                 query_id = cols[0]
 
+                # If we already have a hit for this query_id, skip further hits
+                if query_id in parsed_results:
+                    continue
+
                 # Safely split subject_id and handle cases where there's no pipe ('|')
                 subject_id_parts = cols[1].split('|')
 
@@ -293,15 +297,12 @@ def parse_blast_results(conn, analysis_id, blast_outfmt11_path, query_titles, ta
                 'subject_sequence': cols[9],
             }
 
-            if query_id not in parsed_results:
-                parsed_results[query_id] = {
-                    'query_id': query_id,
-                    'query_title': query_titles.get(query_id, ''),
-                    'query_len': hit['query_length'],
-                    'hits': []
-                }
-
-            parsed_results[query_id]['hits'].append(hit)
+            parsed_results[query_id] = {
+                'query_id': query_id,
+                'query_title': query_titles.get(query_id, ''),
+                'query_len': hit['query_length'],
+                'hits': [hit]
+            }
 
     cursor.close()
     os.remove(decompressed_fmt_6_file_path)
