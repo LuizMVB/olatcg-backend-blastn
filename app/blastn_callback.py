@@ -54,7 +54,7 @@ def create_query_file(data, query_titles, analysis_id):
             title = sequence.get('title', '')
             bases = sequence.get('bases')
             if bases:
-                query_id = f"query_{len(query_titles) + 1}"
+                query_id = f"query_{len(query_titles) + 1}_{title}"
                 query_titles[query_id] = title
                 query_file.write(f">{query_id} {title}\n{bases}\n".encode())
         query_file_path = query_file.name
@@ -85,10 +85,11 @@ def run_blast(query_file_path, analysis_id, db, evalue, gapopen, gapextend, pena
         '-query', decompressed_query_file,
         '-db', db,
         '-evalue', str(evalue),
-        '-gapopen', str(gapopen),
-        '-gapextend', str(gapextend),
-        '-penalty', str(penalty),
+        # '-gapopen', str(gapopen),
+        # '-gapextend', str(gapextend),
+        # '-penalty', str(penalty),
         '-outfmt', '11',  # Output format 11 (BLAST archive)
+        '-max_target_seqs', '1',
         '-out', output_file_path  # Directly output to the file
     ]
 
@@ -372,30 +373,36 @@ def blastn_callback(ch, method, properties, body):
                     """, (blastn_input_id, storage_output_fmt_11_file_path))
         conn.commit()
 
-        # Execute the update statement
-        cursor.execute("""
-                UPDATE core_analysis
-                SET status = %s
-                WHERE id = %s
-            """, ("EXECUTION_SUCCEEDED", data['analysis_id']))
-
-        # Commit the transaction
-        conn.commit()
-
-        print(f"Successfully updated analysis_id {data['analysis_id']} to 'EXECUTION_SUCCEEDED'.")
+        update_analysis_status(conn, cursor, data['analysis_id'])
 
         print('Finished processing BLASTN job.')
     except FileNotFoundError as fe:
         print(f"Missing file: {fe}")
+        update_analysis_status(conn, cursor, data['analysis_id'], 'EXECUTION_FAILED')
         conn.rollback()  # Rollback transaction if something fails
     except Exception as e:
         print(f"Error processing BLASTN job: {e}")
+        update_analysis_status(conn, cursor, data['analysis_id'], 'EXECUTION_FAILED')
         conn.rollback()  # Rollback transaction if something fails
     except:
         print('Error processing BLASTN job. Error Undetected')
+        update_analysis_status(conn, cursor, data['analysis_id'], 'EXECUTION_FAILED')
         conn.rollback()
     finally:
         cursor.close()
         conn.close()
         ch.basic_ack(delivery_tag=method.delivery_tag)
         print('Job completed and acknowledged.')
+
+
+def update_analysis_status(conn, cursor, analysis_id, status="EXECUTION_SUCCEEDED"):
+    # Execute the update statement
+    cursor.execute("""
+                UPDATE core_analysis
+                SET status = %s
+                WHERE id = %s
+            """, (status, analysis_id))
+    # Commit the transaction
+    conn.commit()
+    print(f"Successfully updated analysis_id {analysis_id} to {status}.")
+
