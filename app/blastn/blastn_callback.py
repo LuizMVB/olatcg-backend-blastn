@@ -1,6 +1,6 @@
 import json
 import os
-from homology_analysis import perform_homology_analysis
+from .homology_analysis import perform_homology_analysis
 from utils import connect_db, create_query_file, load_names, load_nodes, load_taxid_map
 
 

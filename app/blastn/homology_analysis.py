@@ -3,7 +3,7 @@ import subprocess
 import tempfile
 from utils import decompress_file, store_file
 
-# FORMAT BLAST OUTPUT
+# FORMAT BLAST OUTPUTs
 # Formats the BLAST output using blast_formatter and writes it to a file.
 def format_blast_output(analysis_id, blast_output_path):
 
