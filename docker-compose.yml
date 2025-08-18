@@ -1,24 +1,24 @@
 version: '3.8'
 services:
-
   consumer:
     image: luizmiguelvb/olatcg-backend-blastn
     build:
       context: .
       dockerfile: Dockerfile
-    command: 'python -u main.py'
+    command: ["python", "-u", "/app/main.py"]
     env_file:
       - ./env/app.env
       - ./env/db.env
     restart: always
     volumes:
-      - ./app:/app
-      - ./blast:/blast
+      - blast_data:/blast                 # <- volume nomeado para persistir /blast
       - blastn_storage:/mnt/data/blastn_storage
+      - ./app:/app                        # opcional: hot-reload de código
     networks:
       - olatcg-bridge
 
 volumes:
+  blast_data:                             # volume gerenciado pelo Docker (persiste entre runs)
   blastn_storage:
     name: olatcg-backend_blastn_storage
     external: true

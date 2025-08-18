@@ -1,3 +1,4 @@
+import datetime
 import os
 import tempfile
 import subprocess
@@ -5,6 +6,7 @@ import psycopg2
 import shutil
 import gzip
 import json
+from psycopg2.extras import Json
 
 def connect_db():
     """Connect to PostgreSQL and return the connection object."""
@@ -50,13 +52,11 @@ def decompress_file(compressed_file_path):
 
 def create_query_file(data, query_titles, analysis_id):
     with tempfile.NamedTemporaryFile(delete=False, suffix='.fasta') as query_file:
-        for sequence in data['biological_sequences']:
-            title = sequence.get('title', '')
-            bases = sequence.get('bases')
-            if bases:
-                query_id = f"query_{len(query_titles) + 1}_{title}"
-                query_titles[query_id] = title
-                query_file.write(f">{query_id} {title}\n{bases}\n".encode())
+        for sequence in data['parameters']['sequences']:
+            if sequence:
+                query_id = f"query_{len(query_titles) + 1}"
+                query_titles[query_id] = query_id
+                query_file.write(f">{query_id} {query_id}\n{sequence}\n".encode())
         query_file_path = query_file.name
 
     storage_file_path = store_file(query_file_path, analysis_id, 'blastn_input')
@@ -209,7 +209,7 @@ def get_lineage(subject_id, tax_id, nodes, names):
     return '; '.join(lineage[::-1])
 
 def parse_blast_results(conn, analysis_id, blast_outfmt11_path, query_titles, taxid_map, nodes, names):
-    cursor = conn.cursor()
+    # cursor = conn.cursor()
 
     # Step 1: Format the BLAST output using the blast_formatter command
     storage_output_fmt_6_file_path = format_blast_output(analysis_id, blast_outfmt11_path)
@@ -254,34 +254,34 @@ def parse_blast_results(conn, analysis_id, blast_outfmt11_path, query_titles, ta
                 print(f"Error processing line {line_number}: {line.strip()}")
                 raise e  # Re-raise the error to handle it properly
 
-            # Step 1: Insert Taxonomy and get its ID
-            insert_taxonomy_sql = """
-                INSERT INTO core_taxonomy (external_tax_id, title, lineage, analysis_id)
-                VALUES (%s, %s, %s, %s)
-                RETURNING id;
-            """
-            cursor.execute(insert_taxonomy_sql, (tax_id, f'{subject_id}|{tax_id}', lineage, analysis_id))
-            taxonomy_id = cursor.fetchone()[0]
+            # # Step 1: Insert Taxonomy and get its ID
+            # insert_taxonomy_sql = """
+            #     INSERT INTO core_taxonomy (external_tax_id, title, lineage, analysis_id)
+            #     VALUES (%s, %s, %s, %s)
+            #     RETURNING id;
+            # """
+            # cursor.execute(insert_taxonomy_sql, (tax_id, f'{subject_id}|{tax_id}', lineage, analysis_id))
+            # taxonomy_id = cursor.fetchone()[0]
 
-            # Step 2: Insert Alignment and get its ID
-            insert_alignment_sql = """
-                INSERT INTO core_alignment (taxonomy_id, analysis_id)
-                VALUES (%s, %s)
-                RETURNING id;
-            """
-            cursor.execute(insert_alignment_sql, (taxonomy_id, analysis_id))
-            alignment_id = cursor.fetchone()[0]
+            # # Step 2: Insert Alignment and get its ID
+            # insert_alignment_sql = """
+            #     INSERT INTO core_alignment (taxonomy_id, analysis_id)
+            #     VALUES (%s, %s)
+            #     RETURNING id;
+            # """
+            # cursor.execute(insert_alignment_sql, (taxonomy_id, analysis_id))
+            # alignment_id = cursor.fetchone()[0]
 
-            # Step 3: Insert Biological Sequences (Query and Subject sequences)
-            insert_biological_seq_sql = """
-                INSERT INTO core_biologicalsequence (alignment_id, bases, external_sequence_id, type)
-                VALUES (%s, %s, %s, %s);
-            """
-            cursor.execute(insert_biological_seq_sql, (alignment_id, cols[8], query_id, 'GAPPED_DNA'))
-            cursor.execute(insert_biological_seq_sql, (alignment_id, cols[9], subject_id, 'GAPPED_DNA'))
+            # # Step 3: Insert Biological Sequences (Query and Subject sequences)
+            # insert_biological_seq_sql = """
+            #     INSERT INTO core_biologicalsequence (alignment_id, bases, external_sequence_id, type)
+            #     VALUES (%s, %s, %s, %s);
+            # """
+            # cursor.execute(insert_biological_seq_sql, (alignment_id, cols[8], query_id, 'GAPPED_DNA'))
+            # cursor.execute(insert_biological_seq_sql, (alignment_id, cols[9], subject_id, 'GAPPED_DNA'))
 
-            # Commit the transaction after each insertion to ensure consistency
-            conn.commit()
+            # # Commit the transaction after each insertion to ensure consistency
+            # conn.commit()
 
             hit = {
                 'subject_id': cols[1],
@@ -304,24 +304,25 @@ def parse_blast_results(conn, analysis_id, blast_outfmt11_path, query_titles, ta
                 'hits': [hit]
             }
 
-    cursor.close()
+    # cursor.close()
     os.remove(decompressed_fmt_6_file_path)
+    return parsed_results
 
 def perform_homology_analysis(conn, data, query_titles, query_file_path, taxid_map, nodes, names):
     storage_output_fmt_11_file_path = run_blast(query_file_path,
                                                 data['analysis_id'],
-                                                data['database'],
-                                                data['evalue'],
-                                                data['gap_open'],
-                                                data['gap_extend'],
-                                                data['penalty'])
+                                                data['parameters']['database'],
+                                                data['parameters']['evalue'],
+                                                data['parameters']['gap_open'],
+                                                data['parameters']['gap_extend'],
+                                                data['parameters']['penalty'])
 
-    parse_blast_results(conn, data['analysis_id'],
+    results = parse_blast_results(conn, data['analysis_id'],
                         storage_output_fmt_11_file_path,
                         query_titles, taxid_map,
                         nodes, names)
 
-    return storage_output_fmt_11_file_path
+    return storage_output_fmt_11_file_path, results
 
 
 def blastn_callback(ch, method, properties, body):
@@ -335,23 +336,13 @@ def blastn_callback(ch, method, properties, body):
     try:
         query_titles = {}
 
+        init_datetime = datetime.datetime.now()
+
         # Generate and store query file
         storage_query_file_path = create_query_file(data, query_titles, data['analysis_id'])
 
         if not storage_query_file_path:
             raise ValueError("Failed to create and store query file.")
-
-        cursor.execute("""
-                    INSERT INTO core_blastninput (database, evalue, gap_open, gap_extend, penalty, analysis_id, input_file)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
-                    RETURNING id;
-                """, (
-            data['database'], data['evalue'], data['gap_open'],
-            data['gap_extend'], data['penalty'], data['analysis_id'],
-            storage_query_file_path  # Pass stored path to DB
-        ))
-        blastn_input_id = cursor.fetchone()[0]
-        conn.commit()
 
         # Load taxonomy data
         taxid_map = load_taxid_map(os.environ.get('TAXID_MAP_FILE'))
@@ -359,19 +350,35 @@ def blastn_callback(ch, method, properties, body):
         names = load_names(os.environ.get('NAMES_FILE'))
 
         # Perform homology analysis and get output file path
-        storage_output_fmt_11_file_path = perform_homology_analysis(
+        storage_output_fmt_11_file_path, results = perform_homology_analysis(
             conn, data, query_titles, storage_query_file_path, taxid_map, nodes, names)
 
         if not storage_output_fmt_11_file_path:
             raise ValueError("Failed to generate BLAST output.")
+        
+        finish_datetime = datetime.datetime.now()
 
-        print('Time to insert file into blastoutput... ')
+        print('Time to insert our inputs and outputs... ')
+
+        cursor.execute("""
+                    INSERT INTO core_analysisinput (created_at, command, analysis_id)
+                    VALUES (%s, %s, %s)
+                    RETURNING id;
+                """, (
+            init_datetime, None, data['analysis_id']
+        ))
+        core_analysisinput_input_id = cursor.fetchone()[0]
+        conn.commit()
+
 
         # Insert output file path into database
-        cursor.execute("""
-                        INSERT INTO core_blastnoutput (input_id, output_file)
-                        VALUES (%s, %s);
-                    """, (blastn_input_id, storage_output_fmt_11_file_path))
+        cursor.execute(
+            """
+            INSERT INTO core_analysisoutput (created_at, results, file, input_id)
+            VALUES (%s, %s, %s, %s);
+            """,
+            (finish_datetime, Json(results), storage_output_fmt_11_file_path, core_analysisinput_input_id)
+        )
         conn.commit()
 
         update_analysis_status(conn, cursor, data['analysis_id'])
@@ -379,15 +386,15 @@ def blastn_callback(ch, method, properties, body):
         print('Finished processing BLASTN job.')
     except FileNotFoundError as fe:
         print(f"Missing file: {fe}")
-        update_analysis_status(conn, cursor, data['analysis_id'], 'EXECUTION_FAILED')
+        update_analysis_status(conn, cursor, data['analysis_id'], 'FAILED')
         conn.rollback()  # Rollback transaction if something fails
     except Exception as e:
         print(f"Error processing BLASTN job: {e}")
-        update_analysis_status(conn, cursor, data['analysis_id'], 'EXECUTION_FAILED')
+        update_analysis_status(conn, cursor, data['analysis_id'], 'FAILED')
         conn.rollback()  # Rollback transaction if something fails
     except:
         print('Error processing BLASTN job. Error Undetected')
-        update_analysis_status(conn, cursor, data['analysis_id'], 'EXECUTION_FAILED')
+        update_analysis_status(conn, cursor, data['analysis_id'], 'FAILED')
         conn.rollback()
     finally:
         cursor.close()
@@ -396,7 +403,7 @@ def blastn_callback(ch, method, properties, body):
         print('Job completed and acknowledged.')
 
 
-def update_analysis_status(conn, cursor, analysis_id, status="EXECUTION_SUCCEEDED"):
+def update_analysis_status(conn, cursor, analysis_id, status="SUCCEEDED"):
     # Execute the update statement
     cursor.execute("""
                 UPDATE core_analysis
