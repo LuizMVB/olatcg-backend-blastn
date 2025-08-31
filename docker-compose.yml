@@ -20,8 +20,6 @@ services:
 volumes:
   blast_data:                             # volume gerenciado pelo Docker (persiste entre runs)
   blastn_storage:
-    name: olatcg-backend_blastn_storage
-    external: true
 
 networks:
   olatcg-bridge:
