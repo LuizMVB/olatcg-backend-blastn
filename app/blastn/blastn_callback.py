@@ -2,6 +2,7 @@ import json
 import os
 from .homology_analysis import perform_homology_analysis
 from utils import connect_db, create_query_file, load_names, load_nodes, load_taxid_map
+from datetime import datetime
 
 
 # BLASTN CALLBACK
@@ -10,6 +11,8 @@ def blastn_callback(ch, method, properties, body):
     print('Started processing BLASTN job...')
 
     data = json.loads(body)
+
+    print(f'newdebug:\n{data}')
 
     conn = connect_db()
     cursor = conn.cursor()
@@ -22,19 +25,28 @@ def blastn_callback(ch, method, properties, body):
 
         if not storage_query_file_path:
             raise ValueError("Failed to create and store query file.")
+        
+        print(f'Storage query file: {storage_query_file_path}')
 
-        cursor.execute("""
-                    INSERT INTO core_blastninput (database, evalue, gap_open, gap_extend, penalty, analysis_id, input_file)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
-                    RETURNING id;
-                """, (
-            data['database'], data['evalue'], data['gap_open'],
-            data['gap_extend'], data['penalty'], data['analysis_id'],
-            # Pass stored path to DB
-            storage_query_file_path
-        ))
-        blastn_input_id = cursor.fetchone()[0]
-        conn.commit()
+
+        #cursor.execute("""
+        #            UPDATE core_analysis
+        #            SET
+        #               updated_at = %s, 
+        #               parameters = %s
+        #            WHERE id = %s
+        #            RETURNING id;
+        #        """, (
+        #    str(datetime.now()),
+        #    json.dumps(data['parameters']),
+        #    json.dumps(data['analysis_id']),
+        #    # Pass stored path to DB
+        #    #storage_query_file_path
+        #))
+        #blastn_input_id = cursor.fetchone()[0]
+
+        blastn_input_id = data['analysis_id']
+        
 
         # Load taxonomy data
         taxid_map = load_taxid_map(os.environ.get('TAXID_MAP_FILE'))
@@ -45,33 +57,46 @@ def blastn_callback(ch, method, properties, body):
         storage_output_fmt_11_file_path = perform_homology_analysis(
             conn, data, query_titles, storage_query_file_path, taxid_map, nodes, names)
 
+        print(f'PHA OK')
+
         if not storage_output_fmt_11_file_path:
             raise ValueError("Failed to generate BLAST output.")
 
         print('Time to insert file into blastoutput... ')
 
+        print(f'Time for insert:\nblastn_input_id: {blastn_input_id} | Type:{type(blastn_input_id)}\nsotrage_fmt_11: {storage_output_fmt_11_file_path} | Type: {type(storage_output_fmt_11_file_path)}')
         # Insert output file path into database
-        cursor.execute("""
-                        INSERT INTO core_blastnoutput (input_id, output_file)
-                        VALUES (%s, %s);
-                    """, (blastn_input_id, storage_output_fmt_11_file_path))
-        conn.commit()
+        #cursor.execute("""
+        #                INSERT INTO core_analysisoutput (id, created_at, updated_at, results, file, input_id)
+        #                VALUES (%s, %s, %s, %s, %s, %s);
+        #            """, (blastn_input_id,
+        #                  datetime.now(),
+        #                  datetime.now(),
+        #                  {'placeholder'},
+        #                  storage_output_fmt_11_file_path,
+        #                  json.dumps(data['analysis_id'])))
+        #conn.commit()
+
+        print(f'cursor_analysisoutput OK')
 
         update_analysis_status(conn, cursor, data['analysis_id'])
+
+        print(f'up_analysis_status OK')
+
 
         print('Finished processing BLASTN job.')
     except FileNotFoundError as fe:
         print(f"Missing file: {fe}")
-        update_analysis_status(conn, cursor, data['analysis_id'], 'EXECUTION_FAILED')
+        update_analysis_status(conn, cursor, data['analysis_id'], 'FAILED')
         # Rollback transaction if something fails
         conn.rollback()
     except Exception as e:
         print(f"Error processing BLASTN job: {e}")
-        update_analysis_status(conn, cursor, data['analysis_id'], 'EXECUTION_FAILED')
+        update_analysis_status(conn, cursor, data['analysis_id'], 'FAILED')
         conn.rollback()
     except:
         print('Error processing BLASTN job. Error Undetected')
-        update_analysis_status(conn, cursor, data['analysis_id'], 'EXECUTION_FAILED')
+        update_analysis_status(conn, cursor, data['analysis_id'], 'FAILED')
         conn.rollback()
     finally:
         cursor.close()
@@ -81,8 +106,8 @@ def blastn_callback(ch, method, properties, body):
 
 
 # UPDATE ANALYSIS STATUS
-# Defaults to 'EXECUTION_SUCCEEDED', in case of error, 'EXECUTION_FAILED' is to be passed as a parameter.
-def update_analysis_status(conn, cursor, analysis_id, status="EXECUTION_SUCCEEDED"):
+# Defaults to 'SUCCEEDED', in case of error, 'FAILED' is to be passed as a parameter.
+def update_analysis_status(conn, cursor, analysis_id, status="SUCCEEDED"):
 
     # Execute the update statement
     cursor.execute("""

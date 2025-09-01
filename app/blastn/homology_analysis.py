@@ -1,7 +1,9 @@
 import os
+import json
 import subprocess
 import tempfile
-from utils import decompress_file, store_file
+from utils import decompress_file, store_file, connect_db
+from datetime import datetime
 
 # FORMAT BLAST OUTPUTs
 # Formats the BLAST output using blast_formatter and writes it to a file.
@@ -79,7 +81,10 @@ def parse_blast_results(conn, analysis_id, blast_outfmt11_path, query_titles, ta
     parsed_results = {}
 
     with open(decompressed_fmt_6_file_path, 'r') as blast_results_file:
+        print(f'opened_blast_file OK: {blast_results_file}')
+
         for line_number, line in enumerate(blast_results_file, 1):
+            print(f'enumerate OK')
             cols = line.strip().split("\t")
 
             print(f"Line {line_number}: Parsed {len(cols)} columns.")
@@ -111,33 +116,33 @@ def parse_blast_results(conn, analysis_id, blast_outfmt11_path, query_titles, ta
                 raise e  # Re-raise the error to handle it properly
 
             # Step 1: Insert Taxonomy and get its ID
-            insert_taxonomy_sql = """
-                INSERT INTO core_taxonomy (external_tax_id, title, lineage, analysis_id)
-                VALUES (%s, %s, %s, %s)
-                RETURNING id;
-            """
-            cursor.execute(insert_taxonomy_sql, (tax_id, f'{subject_id}|{tax_id}', lineage, analysis_id))
-            taxonomy_id = cursor.fetchone()[0]
+            #insert_taxonomy_sql = """
+            #    INSERT INTO core_taxonomy (external_tax_id, title, lineage, analysis_id)
+            #    VALUES (%s, %s, %s, %s)
+            #    RETURNING id;
+            #"""
+            #cursor.execute(insert_taxonomy_sql, (tax_id, f'{subject_id}|{tax_id}', lineage, analysis_id))
+            #taxonomy_id = cursor.fetchone()[0]
 
-            # Step 2: Insert Alignment and get its ID
-            insert_alignment_sql = """
-                INSERT INTO core_alignment (taxonomy_id, analysis_id)
-                VALUES (%s, %s)
-                RETURNING id;
-            """
-            cursor.execute(insert_alignment_sql, (taxonomy_id, analysis_id))
-            alignment_id = cursor.fetchone()[0]
+            ## Step 2: Insert Alignment and get its ID
+            #insert_alignment_sql = """
+            #    INSERT INTO core_alignment (taxonomy_id, analysis_id)
+            #    VALUES (%s, %s)
+            #    RETURNING id;
+            #"""
+            #cursor.execute(insert_alignment_sql, (taxonomy_id, analysis_id))
+            #alignment_id = cursor.fetchone()[0]
 
-            # Step 3: Insert Biological Sequences (Query and Subject sequences)
-            insert_biological_seq_sql = """
-                INSERT INTO core_biologicalsequence (alignment_id, bases, external_sequence_id, type)
-                VALUES (%s, %s, %s, %s);
-            """
-            cursor.execute(insert_biological_seq_sql, (alignment_id, cols[8], query_id, 'GAPPED_DNA'))
-            cursor.execute(insert_biological_seq_sql, (alignment_id, cols[9], subject_id, 'GAPPED_DNA'))
+            ## Step 3: Insert Biological Sequences (Query and Subject sequences)
+            #insert_biological_seq_sql = """
+            #    INSERT INTO core_biologicalsequence (alignment_id, bases, external_sequence_id, type)
+            #    VALUES (%s, %s, %s, %s);
+            #"""
+            #cursor.execute(insert_biological_seq_sql, (alignment_id, cols[8], query_id, 'GAPPED_DNA'))
+            #cursor.execute(insert_biological_seq_sql, (alignment_id, cols[9], subject_id, 'GAPPED_DNA'))
 
             # Commit the transaction after each insertion to ensure consistency
-            conn.commit()
+            #conn.commit()
 
             hit = {
                 'subject_id': cols[1],
@@ -160,6 +165,22 @@ def parse_blast_results(conn, analysis_id, blast_outfmt11_path, query_titles, ta
                 'hits': [hit]
             }
 
+            print(f'with_open OK')
+
+    cursor.execute("""
+                        INSERT INTO core_analysisoutput (id, created_at, updated_at, results, file, input_id)
+                        VALUES (%s, %s, %s, %s, %s, %s);
+                    """, (analysis_id,
+                          datetime.now(),
+                          datetime.now(),
+                          json.dumps(parsed_results),
+                          blast_outfmt11_path,
+                          analysis_id))
+    conn.commit()
+
+    print(f'comm OK')
+
+
     cursor.close()
     os.remove(decompressed_fmt_6_file_path)
 
@@ -169,17 +190,19 @@ def parse_blast_results(conn, analysis_id, blast_outfmt11_path, query_titles, ta
 def perform_homology_analysis(conn, data, query_titles, query_file_path, taxid_map, nodes, names):
     storage_output_fmt_11_file_path = run_blast(query_file_path,
                                                 data['analysis_id'],
-                                                data['database'],
-                                                data['evalue'],
-                                                data['gap_open'],
-                                                data['gap_extend'],
-                                                data['penalty'])
-
+                                                data['parameters']['database'],
+                                                data['parameters']['evalue'],
+                                                data['parameters']['gap_open'],
+                                                data['parameters']['gap_extend'],
+                                                data['parameters']['penalty'])
+    
+    print(f'RUN_BLAST OK')
     parse_blast_results(conn, data['analysis_id'],
                         storage_output_fmt_11_file_path,
                         query_titles, taxid_map,
                         nodes, names)
 
+    print(f'PARSE_BLAST_R OK')
     return storage_output_fmt_11_file_path
 
 
@@ -192,34 +215,66 @@ def run_blast(query_file_path, analysis_id, db, evalue, gapopen, gapextend, pena
     # Decompress the stored .gz query file
     decompressed_query_file = decompress_file(query_file_path)
 
+    with open(decompressed_query_file, 'r') as df:
+        lines = df.readlines()
+
+        for i, line in enumerate(lines):
+            print(f'{i}: -> {line}')
+
     with tempfile.NamedTemporaryFile(delete=False, suffix='.out') as output_file:
         output_file_path = output_file.name
+
+    conn = connect_db()
+    cursor = conn.cursor()
 
     blastn_command = [
         'blastn',
         '-query', decompressed_query_file,
         '-db', db,
         '-evalue', str(evalue),
-        # '-gapopen', str(gapopen),
-        # '-gapextend', str(gapextend),
-        # '-penalty', str(penalty),
+        '-gapopen', str(gapopen),
+        '-gapextend', str(gapextend),
+        '-penalty', str(penalty),
         '-outfmt', '11',  # Output format 11 (BLAST archive)
         '-max_target_seqs', '1',
         '-out', output_file_path  # Directly output to the file
     ]
+
+    cursor.execute("""
+                    INSERT INTO core_analysisinput (id, created_at, updated_at, command, analysis_id)
+                    VALUES (%s, %s, %s, %s, %s)
+                    RETURNING id;
+                """, (
+            analysis_id,
+            datetime.now(),
+            datetime.now(),
+            blastn_command,
+            analysis_id,
+        ))
+        #blastn_input_id = cursor.fetchone()[0]
+    conn.commit()
 
     print(f"Running BLAST command: {' '.join(blastn_command)}")
 
     with open(output_file_path, 'w') as blast_output:
         result = subprocess.run(blastn_command, stdout=blast_output, stderr=subprocess.PIPE, text=True)
 
+        print(f'this is result: {result}')
+
         if result.returncode != 0:
-            print(f"BLAST Error: {result.stderr}")
-            raise subprocess.CalledProcessError(result.returncode, blastn_command, output=result.stdout,
+            blast_err = result.stderr.split('\n')
+            for err in blast_err:
+                print(f"BLAST Error: {err}")
+                if err[:7].lower() == 'warning':
+                    continue
+                else:
+                    raise subprocess.CalledProcessError(result.returncode, blastn_command, output=result.stdout,
                                                 stderr=result.stderr)
 
     # Clean up decompressed file
     os.remove(decompressed_query_file)
+
+    print(f'OS_REMOVE OK')
 
     storage_file_path = store_file(output_file_path, analysis_id, 'blastn_output_fmt_11')
 

@@ -13,7 +13,6 @@ services:
     restart: always
     volumes:
       - ./app:/app
-      - ./blast:/blast
       - blastn_storage:/mnt/data/blastn_storage
     networks:
       - olatcg-bridge

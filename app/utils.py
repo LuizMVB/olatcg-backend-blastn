@@ -20,15 +20,13 @@ def connect_db():
 # Creates and stores the query as a temporary file.
 def create_query_file(data, query_titles, analysis_id):
     with tempfile.NamedTemporaryFile(delete=False, suffix='.fasta') as query_file:
-        for sequence in data['biological_sequences']:
-            title = sequence.get('title', '')
-            bases = sequence.get('bases')
-            if bases:
-                query_id = f"query_{len(query_titles) + 1}_{title}"
-                query_titles[query_id] = title
-                query_file.write(f">{query_id} {title}\n{bases}\n".encode())
+        for seq_id, sequence in enumerate(data['parameters']['sequences']):
+            if sequence:
+                query_id = f"query_{len(query_titles) + 1}_{seq_id}"
+                query_titles[query_id] = seq_id
+                print(f'escrebeo: ">{query_id} {seq_id}\n{sequence}\n"')
+                query_file.write(f">{query_id} {seq_id}\n{sequence}\n".encode())
         query_file_path = query_file.name
-
     storage_file_path = store_file(query_file_path, analysis_id, 'blastn_input')
 
     file_size = os.path.getsize(storage_file_path)
@@ -58,7 +56,8 @@ def decompress_file(compressed_file_path):
 # LOAD NAMES
 def load_names(names_file):
     names = {}
-    with open(names_file) as f:
+    file_location = '' + names_file
+    with open(file_location) as f:
         for line in f:
             parts = line.strip().split('|')
             tax_id = parts[0].strip()
@@ -73,7 +72,8 @@ def load_names(names_file):
 # LOAD NODES
 def load_nodes(nodes_file):
     nodes = {}
-    with open(nodes_file) as f:
+    file_location = '' + nodes_file
+    with open(file_location) as f:
         for line in f:
             parts = line.strip().split('|')
             tax_id = parts[0].strip()
@@ -87,7 +87,11 @@ def load_nodes(nodes_file):
 # LOAD TAXID MAP
 def load_taxid_map(taxid_map_file):
     taxid_map = {}
-    with open(taxid_map_file) as f:
+    file_location = taxid_map_file
+    print(f'Cur Location: {os.getcwd()}')
+    print(f'Cur Location (Full): {os.path.abspath(__file__)}')
+
+    with open(file_location) as f:
         for line in f:
             seq_id, tax_id = line.strip().split()
             taxid_map[seq_id] = tax_id
